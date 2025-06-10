@@ -1,0 +1,405 @@
+﻿Харківський національний університет радіоелектроніки Факультет комп'ютерних наук
+Кафедра програмної інженерії ЗВІТ
+з дисципліни 
+"Архітектура програмного забезпечення" до лабораторної роботи №2
+на тему: "РОЗРОБКА СЕРВЕРНОЇ ЧАСТИНИ СИСТЕМИ"
+
+
+
+
+
+
+
+       Виконав ст. гр. ПЗПІ-22-2 Шелехань Олександр Максимович
+
+            Перевірив Ст. викл. кафедри ПІ Сокорчук Ігор Петрович
+
+
+
+
+
+
+
+
+
+
+Харків 2025
+
+МЕТА РОБОТИ
+
+     Розробка бізнес-логіки та функцій адміністрування для серверної частини програмної системи.
+ХІД РОБОТИ
+
+     У процесі виконання роботи було реалізовано наступні функціональні можливості серверної частини програмної системи:
+1. Функції адміністрування:
+- Було розроблено механізм управління користувачами системи, який дозволяє адміністраторам здійснювати створення, оновлення, видалення, блокування та розблокування
+користувачів за потреби.
+- Забезпечено функціонал імпорту даних до системи з відповідних файлів, а також експорту існуючих даних із системи з подальшою відправкою їх адміністратору на електронну пошту.
+- Реалізовано генерацію звітів для адміністратора про активність користувачів системи, що включає інформацію про всі бронювання користувача, із подальшим відправленням звіту на електронну пошту.
+2. Функції управління бронюваннями:
+- Забезпечено перевірку доступності об'єктів перед створенням нових бронювань. Це дозволяє уникнути конфліктів у періодах бронювання.
+- Реалізовано автоматичне надсилання власникам об'єктів сповіщень про нові бронювання, оновлення або скасування
+
+існуючих бронювань. Такі сповіщення включають детальну інформацію про зміну статусу бронювання.
+3. Функції для власників об'єктів:
+- Власникам об'єктів надано можливість отримувати звіти, що
+містять детальну інформацію про всі бронювання їхніх об'єктів, включаючи загальну кількість бронювань, доходи та інші статистичні дані. Ці звіти формуються у форматі PDF.
+4. Функції для користувачів:
+- Розроблено функціонал перегляду доступних для бронювання об'єктів у вказаний часовий проміжок, що дозволяє користувачам зручно знаходити вільні місця.
+- Запроваджено можливість отримання користувачами спеціальних персоналізованих пропозицій, що включають знижки на
+подальші бронювання. Це стимулює користувачів до активнішого використання системи.
+5. Генерація звітів:
+- Розроблено функціонал для автоматичної генерації звітів на основі даних системи, з використанням шаблонів. Звіти
+формуються у форматі PDF та можуть бути відправлені на електронну пошту відповідної сторони (адміністратора, власника чи користувача).
+
+ВИСНОВКИ
+
+
+У ході виконання роботи було реалізовано бізнес-логіку та функції
+адміністрування серверної частини програмної системи. Система забезпечує ефективне управління користувачами, бронюваннями, імпортом та експортом
+
+даних, а також автоматичну генерацію звітів. Усі функціональні можливості були успішно протестовані, що підтверджує їх відповідність поставленим вимогам.
+
+ДОДАТОК А
+UML ДІАГРАМА ДІЯЛЬНОСТІ ДЛЯ СЕРВЕРНОЇ ЧАСТИНИ
+
+Рисунок А - UML діаграма діяльності для серверної частини
+
+ДОДАТОК Б
+UML ДІАГРАМА ВЗАЄМОДІЇ ДЛЯ СЕРВЕРНОЇ ЧАСТИНИ
+
+Рисунок Б - UML діаграма взаємодії для серверної частини
+
+ДОДАТОК В
+ФРАГМЕНТ ПРОГРАМНОГО КОДУ БІЗНЕС ЛОГИКИ
+1 from sqlalchemy.ext.asyncio import AsyncSession
+2 from sqlalchemy import select, delete
+3 from app.models.booking import Booking
+4 from app.models.property import Property
+5 from app.models.user import User
+6 from app.schemas.user import User
+7 from app.enums.user_role import Role
+  8 from app.schemas.booking import BookingCreate, BookingUpdate, PersonalizedOffer
+9 from sqlalchemy.orm import selectinload
+10 from fastapi import HTTPException
+11 from datetime import date
+12 from sklearn.cluster import KMeans
+13 import numpy as np 14
+15
+16 async def check_availability(
+17 db: AsyncSession,
+18 property_id: int,
+19 start_date: date,
+20 end_date: date,
+21 booking_id: int = None,
+22 ) -> bool:
+23 """
+ 24 Check if a property is available for booking in the given date range.
+25 """
+26 if start_date >= end_date:
+27 raise HTTPException(
+ 28 status_code=400, detail="Start date must be before the end date."
+29	)
+
+30
+31	result = await db.execute(
+32	select(Booking)
+33	.filter(Booking.property_id == property_id)
+34	.filter(Booking.start_date < end_date)
+35	.filter(Booking.end_date > start_date)
+36	.filter(Booking.id != booking_id)
+37	)
+38	overlapping_bookings = result.scalars().all() 39
+40	return len(overlapping_bookings) == 0
+41
+42
+ 43 async def create_booking(db: AsyncSession, booking: BookingCreate, user: User):
+44 """Create a new booking."""
+45 if not await check_availability(
+ 46 db, booking.property_id, booking.start_date, booking.end_date
+47	):
+48 raise HTTPException(
+ 49 status_code=400, detail="Property is not available for booking."
+50	)
+51
+52 new_booking = Booking(**booking.model_dump(), user_id=user.id)
+53 # get the property with the owner
+ 54 query = select(Property).where(Property.id == booking.property_id).options(
+55 selectinload(Property.owner)
+56	)
+57 result = await db.execute(query)
+58 property = result.scalar_one()
+59 new_booking.property = property
+60 db.add(new_booking)
+
+61 await db.commit()
+62 await db.refresh(new_booking)
+63 return new_booking
+64
+65
+66 async def update_booking(
+ 67	db: AsyncSession, booking_id: int, booking: BookingUpdate, user: User
+68):69"""Update booking details."""70db_booking = await get_booking(db, booking_id, user)7172if not db_booking: 73	raise HTTPException(status_code=404, detail="Booking not found")
+74
+75 if db_booking.user_id != user.id:
+76 raise HTTPException(
+ 77 status_code=403, detail="You are not allowed to update this booking."
+78	)
+79
+80 if booking.start_date or booking.end_date:
+81 start_date = booking.start_date or db_booking.start_date
+82 end_date = booking.end_date or db_booking.end_date 83
+84 if not await check_availability(
+ 85 db, db_booking.property_id, start_date, end_date, booking_id
+86	):
+87 raise HTTPException(
+ 88 status_code=400, detail="Property is not available for booking."
+89	)
+90
+
+91 for key, value in booking.model_dump().items():
+92 setattr(db_booking, key, value) 93
+94 await db.commit()
+95 await db.refresh(db_booking)
+96 return db_booking
+97
+98
+ 99 async def delete_booking(db: AsyncSession, booking_id: int, user: User):
+100 """Delete a booking."""
+101 db_booking = await get_booking(db, booking_id, user)
+102 if not db_booking:
+103 raise HTTPException(status_code=404, detail="Booking not found")
+104 if db_booking.user_id != user.id:
+105 raise HTTPException(
+106 status_code=403, detail="You are not allowed to delete this booking."
+107	)
+108	delete_query = delete(Booking).where(Booking.id == booking_id).returning(Booking)
+109	result = await db.execute(delete_query)
+110	deleted_booking = result.scalar_one()
+111	await db.commit()
+112	return deleted_booking
+113
+114
+115 async def get_booking(db: AsyncSession, booking_id: int, user:
+
+User):116"""Retrieve a bookingby ID."""117query = (118select(Booking)119.where(Booking.id== booking_id)120	.options(selectinload(Booking.property))
+
+121	)
+122 result = await db.execute(query)
+123 booking = result.scalar_one_or_none()
+124 if not booking:
+125 raise HTTPException(status_code=404, detail="Booking not found")
+126 if user.role == Role.USER and booking.user_id != user.id:
+127 raise HTTPException(
+128 status_code=403, detail="You are not allowed to view this booking."
+129	)
+130 elif user.role == Role.OWNER and booking.property.owner_id != user.id:
+131 raise HTTPException(
+132 status_code=403, detail="You are not allowed to view this booking."
+133	)
+134	return booking
+135
+136
+137 async def get_bookings(db: AsyncSession, user: User):
+138 """Retrieve all bookings for a user."""
+139 query = (
+140 select(Booking)
+141 .where(Booking.user_id == user.id)
+142 .options(selectinload(Booking.property))
+143	)
+144 result = await db.execute(query)
+145 bookings = result.scalars().all()
+146 return bookings
+147
+148
+149 async def get_personalized_offers(db: AsyncSession, user: User):
+150 """
+
+151 Розрахувати персоналізовані пропозиції для користувача на основі попередніх бронювань.
+152 """
+153
+154 # Отримати всі бронювання для користувача
+155 query = (
+156 select(Booking)
+157 .where(Booking.user_id == user.id)
+158 .options(selectinload(Booking.property))
+159	)
+160 result = await db.execute(query)
+161 bookings = result.scalars().all() 162
+163 # Якщо у користувача немає бронювань, повернути порожній список
+164 if not bookings:
+165 return []
+166
+167 # Підготувати дані для кластеризації: property_id та тривалість перебування (у днях)
+168 data = np.array(
+169 [[b.property_id, (b.end_date - b.start_date).days] for b in bookings]
+170	)
+171
+172 # Визначити кількість кластерів
+173 n_clusters = min(3, len(data)) 174
+175 # Застосувати кластеризацію KMeans для групування бронювань у кластери
+176 kmeans = KMeans(n_clusters=n_clusters).fit(data)
+177 clusters = kmeans.predict(data) 178
+179 # Отримати всі властивості
+180 all_properties_query = select(Property)
+
+181 all_properties_result = await db.execute(all_properties_query)
+182 all_properties = all_properties_result.scalars().all() 183
+184 # Отримати властивості, які користувач ще не бронював
+185 booked_property_ids = {b.property_id for b in bookings}
+186 new_properties = [p for p in all_properties if p.id not in booked_property_ids]
+187
+188 offers = []
+189 # Генерувати персоналізовані пропозиції на основі кластерів
+190 for cluster in set(clusters):
+191 cluster_indices = np.where(clusters == cluster)[0]
+192 cluster_bookings = [bookings[i] for i in cluster_indices] 193
+194 # Вибрати нову властивість для пропозиції
+195 if new_properties:
+196 property = new_properties.pop(0)
+197 else:
+198 property = cluster_bookings[0].property 199
+200 # Розрахувати знижку на основі кількості бронювань у кластері
+201 total_days = sum((b.end_date - b.start_date).days for b in cluster_bookings)
+202 discount = min(20.0, 5.0 + 0.1 * total_days)
+203
+204 message = "Спеціальна пропозиція саме для вас!"
+205 offers.append(
+206 PersonalizedOffer(property=property, discount=discount, message=message)
+207	)
+208
+209	return offers
+210
+211
+
+212 async def get_owner_bookings(db: AsyncSession, owner_id: int):
+213 """Retrieve all bookings for properties owned by the owner."""
+214 query = (
+215 select(Booking)
+216 .join(Booking.property)
+217 .where(Property.owner_id == owner_id)
+218 .options(selectinload(Booking.property))
+219	)
+220 result = await db.execute(query)
+221 bookings = result.scalars().all()
+222 return bookings
+
+ДОДАТОК Г
+ФРАГМЕНТ ПРОГРАМНОГО КОДУ
+1 from fastapi import APIRouter, Depends, HTTPException, status
+2 from app.crud import user as user_crud
+  3 from app.schemas.user import UserCreate, User, UserUpdate, UserBase
+4 from app.core.database import get_db
+  5 from app.dependencies import role_required, get_current_user, check_not_blocked
+6 from sqlalchemy.ext.asyncio import AsyncSession
+7 from app.enums.user_role import Role
+8 from app.reports import generate_user_activity_report
+ 9 from app.email_utils import send_email_task 10
+11 router = APIRouter(
+12 prefix="/users",
+13 tags=["users"],
+14 )
+15
+16 @router.get("/{user_id}/activity_report", response_model=str)
+17 async def get_user_activity_report(
+18 user_id: int,
+19 db: AsyncSession = Depends(get_db),
+20 current_user: User = Depends(role_required([Role.ADMIN])),
+21 ):
+22 """Generate and send user activity report to admin."""
+23 user = await user_crud.get_user(db, user_id)
+24 if not user:
+ 25 raise HTTPException(status_code=404, detail="User not found")
+26
+27 # Generate the report
+28 report_path = await generate_user_activity_report(db, user) 29
+
+30	# Send the report to the admin's email
+31	admin_email = current_user.email
+32	subject = f"User Activity Report for {user.first_name}
+{user.last_name}"
+33	body = f"Please find attached the activity report for user
+{user.first_name} {user.last_name}."
+34	send_email_task.delay(admin_email, subject, body, report_path) 35
+36	return "Report has been sent to your email." 37
+38
+39 @router.get("/me", response_model=UserBase)
+ 40 async def read_current_user(current_user: User = Depends(check_not_blocked)):
+41	"""Retrieve the current authenticated user."""
+42	return current_user
+43
+44
+45 @router.post("/", response_model=User)
+46 async def create_user(
+47	user: UserCreate,
+48	db: AsyncSession = Depends(get_db),
+49 ):
+50 """Create a new user."""
+51 if user.role == Role.ADMIN:
+52 raise HTTPException(
+53 status_code=status.HTTP_403_FORBIDDEN,
+54 detail="You are not allowed to create an admin user.",
+55	)
+56	return await user_crud.create_user(db, user) 57
+58
+59 @router.post("/admin", response_model=User)
+60 async def create_admin_user(
+61 user: UserCreate,
+
+62 db: AsyncSession = Depends(get_db),
+63 current_user: User = Depends(role_required([Role.ADMIN])),
+64 ):
+65 """Create a new admin user."""
+66 return await user_crud.create_user(db, user) 67
+68
+69 @router.put("/{user_id}", response_model=User)
+70 async def update_user(
+71 user_id: int,
+72 user: UserUpdate,
+73 db: AsyncSession = Depends(get_db),
+74 current_user: User = Depends(check_not_blocked),
+75 ):
+76 """Update a user."""
+ 77 return await user_crud.update_user(db, user_id, user, current_user)
+78
+79
+80 @router.delete("/{user_id}", response_model=User)
+81 async def delete_user(
+82 user_id: int,
+83 db: AsyncSession = Depends(get_db),
+84 current_user: User = Depends(check_not_blocked),
+85 ):
+86 """Delete a user."""
+87 return await user_crud.delete_user(db, user_id, current_user) 88
+89
+90 @router.put("/{user_id}/block", response_model=User)
+91 async def block_user(
+92 user_id: int,
+93 db: AsyncSession = Depends(get_db),
+94 current_user: User = Depends(role_required([Role.ADMIN])),
+95 ):
+
+96 """Block a user."""
+97 return await user_crud.block_user(db, user_id) 98
+99
+100 @router.put("/{user_id}/unblock", response_model=User)
+101 async def unblock_user(
+102 user_id: int,
+103 db: AsyncSession = Depends(get_db),
+104 current_user: User = Depends(role_required([Role.ADMIN])),
+
+105):106"""Unblock a user."""107return await user_crud.unblock_user(db, user_id)108109110 @router.get("/{user_id}/activity_report", response_model=str)
+111 async def get_user_activity_report(
+112 user_id: int,
+113 db: AsyncSession = Depends(get_db),
+114 current_user: User = Depends(role_required([Role.ADMIN])),
+115 ):
+116 """Generate and send user activity report to admin."""
+117 user = await user_crud.get_user(db, user_id)
+118 if not user:
+119 raise HTTPException(status_code=404, detail="User not found")
+120 report_path = await generate_user_activity_report(db, user)
+121 return report_path
+
+ДОДАТОК Е ВІДЕО НА ЮТУБ
+https://youtu.be/fYoHHveeax4 
