@@ -48,5 +48,11 @@ class Settings(BaseSettings):
     BROKER_URL: str
     RESULT_BACKEND: str
 
+    IOTHUB_HOST: str
+    REGISTRY_SHARED_ACCESS_KEY_NAME: str
+    REGISTRY_SHARED_ACCESS_KEY: str
+    
+    REACT_APP_API_URL: str
+
 
 settings = Settings()

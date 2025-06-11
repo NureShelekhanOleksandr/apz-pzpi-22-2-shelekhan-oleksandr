@@ -20,3 +20,6 @@ class User(Base):
 
     properties = relationship("Property", back_populates="owner")
     bookings = relationship("Booking", back_populates="user")
+    notifications = relationship(
+        "Notification", back_populates="user", cascade="all, delete-orphan"
+    )

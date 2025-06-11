@@ -15,7 +15,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 async def get_current_user(
     token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
 ):
-    """Retrieve the current authenticated user."""
+    """Retrieve the current authenticated user.
+    
+    This function decodes the access token to retrieve the user ID, 
+    then fetches the user from the database using the user ID.
+    """
     payload = decode_access_token(token)
     id: str = payload.get("sub")
     if not id:
@@ -26,7 +30,10 @@ async def get_current_user(
 
 
 async def check_not_blocked(current_user: User = Depends(get_current_user)):
-    """Check if the current user is blocked."""
+    """Check if the current user is blocked.
+    
+    This function raises an HTTP 403 error if the user is blocked.
+    """
     if current_user.is_blocked:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -36,7 +43,10 @@ async def check_not_blocked(current_user: User = Depends(get_current_user)):
 
 
 def role_required(required_roles: List[Role]):
-    """Check if the user's role matches the required roles."""
+    """Check if the user's role matches the required roles.
+    
+    This function raises an HTTP 403 error if the user's role does not match any of the required roles.
+    """
 
     def role_dependency(current_user: User = Depends(get_current_user)):
         if current_user.role not in required_roles:

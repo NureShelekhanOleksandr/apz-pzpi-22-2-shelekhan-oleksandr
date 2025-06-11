@@ -7,7 +7,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 
 engine = create_async_engine(
-    str(settings.SQLALCHEMY_DATABASE_URL), echo=True, future=True
+    str(settings.SQLALCHEMY_DATABASE_URL),
+    pool_size=10,
+    max_overflow=20,
+    future=True,
 )
 
 async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)

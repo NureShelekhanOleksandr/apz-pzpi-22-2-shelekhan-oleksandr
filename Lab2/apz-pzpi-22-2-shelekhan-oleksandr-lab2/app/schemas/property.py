@@ -5,10 +5,11 @@ from datetime import date
 
 class PropertyBase(BaseModel):
     name: str
-    description: Optional[str]
+    description: Optional[str] = None
     rooms: int
     price: float
-    location: Optional[str]
+    location: Optional[str] = None
+    lock_id: Optional[str] = None
 
 
 class PropertyCreate(PropertyBase):

@@ -3,25 +3,24 @@ from typing import Optional
 from datetime import datetime
 
 
-class AccessCodeBase(BaseModel):
-    code: str
-    is_used: bool = False
-    user_id: int
+class AccessCodeResponse(BaseModel):
+    access_code: str
+    valid_from: datetime
+    valid_until: datetime
+    booking_id: int
 
 
-class AccessCodeCreate(AccessCodeBase):
-    pass
+class AccessCodeCreate(BaseModel):
+    valid_from: datetime
+    valid_until: datetime
 
 
-class AccessCodeUpdate(BaseModel):
-    code: Optional[str] = None
-    is_used: Optional[bool] = None
-    user_id: Optional[int] = None
-
-
-class AccessCode(AccessCodeBase):
+class AccessCode(BaseModel):
     id: int
-    created_at: datetime
+    code: str
+    valid_from: datetime
+    valid_until: datetime
+    booking_id: int
 
     class Config:
         orm_mode = True

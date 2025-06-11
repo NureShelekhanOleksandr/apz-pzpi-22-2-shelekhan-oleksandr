@@ -15,4 +15,4 @@ class Payment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # user = relationship("User", back_populates="payments")
-    # booking = relationship("Booking", back_populates="payment")
+    booking = relationship("Booking", back_populates="payment")

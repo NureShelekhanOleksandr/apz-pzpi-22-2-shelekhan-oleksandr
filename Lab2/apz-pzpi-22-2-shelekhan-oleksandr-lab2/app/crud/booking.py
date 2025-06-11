@@ -6,11 +6,16 @@ from app.models.user import User
 from app.schemas.user import User
 from app.enums.user_role import Role
 from app.schemas.booking import BookingCreate, BookingUpdate, PersonalizedOffer
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 from fastapi import HTTPException
 from datetime import date
 from sklearn.cluster import KMeans
 import numpy as np
+from app.models.access_code import AccessCode
+from datetime import datetime, timedelta
+import random
+import string
+from typing import List
 
 
 async def check_availability(
@@ -49,15 +54,35 @@ async def create_booking(db: AsyncSession, booking: BookingCreate, user: User):
 
     new_booking = Booking(**booking.model_dump(), user_id=user.id)
     # get the property with the owner
-    query = select(Property).where(Property.id == booking.property_id).options(
-        selectinload(Property.owner)
+    query = (
+        select(Property)
+        .where(Property.id == booking.property_id)
+        .options(selectinload(Property.owner))
     )
     result = await db.execute(query)
     property = result.scalar_one()
+    nights = (booking.end_date - booking.start_date).days
+    total_price = property.price * nights
+    new_booking.booking_price = total_price
     new_booking.property = property
     db.add(new_booking)
     await db.commit()
     await db.refresh(new_booking)
+
+    # Generate access codes for the booking
+    access_code = AccessCode(
+        booking_id=new_booking.id,
+        code="".join(random.choices(string.ascii_uppercase + string.digits, k=8)),
+        valid_from=datetime.utcnow(),
+        valid_until=datetime.utcnow() + timedelta(days=1),
+    )
+    db.add(access_code)
+    await db.commit()
+    await db.refresh(access_code)
+
+    # Send access code to the user (e.g., via email or SMS)
+    # You can implement the logic to send the access code here
+
     return new_booking
 
 
@@ -70,11 +95,17 @@ async def update_booking(
     if not db_booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if db_booking.user_id != user.id:
+    # Allow both the booking user and the property owner to update the booking
+    if user.role == Role.USER and db_booking.user_id != user.id:
+        raise HTTPException(
+            status_code=403, detail="You are not allowed to update this booking."
+        )
+    elif user.role == Role.OWNER and db_booking.property.owner_id != user.id:
         raise HTTPException(
             status_code=403, detail="You are not allowed to update this booking."
         )
 
+    # Only update dates if they are provided
     if booking.start_date or booking.end_date:
         start_date = booking.start_date or db_booking.start_date
         end_date = booking.end_date or db_booking.end_date
@@ -86,8 +117,17 @@ async def update_booking(
                 status_code=400, detail="Property is not available for booking."
             )
 
-    for key, value in booking.model_dump().items():
-        setattr(db_booking, key, value)
+        db_booking.start_date = start_date
+        db_booking.end_date = end_date
+
+    # Update only the fields that are provided
+    update_data = booking.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        if key not in [
+            "start_date",
+            "end_date",
+        ]:  # Skip dates as they're handled separately
+            setattr(db_booking, key, value)
 
     await db.commit()
     await db.refresh(db_booking)
@@ -115,7 +155,10 @@ async def get_booking(db: AsyncSession, booking_id: int, user: User):
     query = (
         select(Booking)
         .where(Booking.id == booking_id)
-        .options(selectinload(Booking.property))
+        .options(
+            selectinload(Booking.property).selectinload(Property.owner),
+            selectinload(Booking.payment),
+        )
     )
     result = await db.execute(query)
     booking = result.scalar_one_or_none()
@@ -137,7 +180,7 @@ async def get_bookings(db: AsyncSession, user: User):
     query = (
         select(Booking)
         .where(Booking.user_id == user.id)
-        .options(selectinload(Booking.property))
+        .options(selectinload(Booking.property), selectinload(Booking.payment))
     )
     result = await db.execute(query)
     bookings = result.scalars().all()
@@ -188,7 +231,7 @@ async def get_personalized_offers(db: AsyncSession, user: User):
     for cluster in set(clusters):
         cluster_indices = np.where(clusters == cluster)[0]
         cluster_bookings = [bookings[i] for i in cluster_indices]
-        
+
         # Вибрати нову властивість для пропозиції
         if new_properties:
             property = new_properties.pop(0)
@@ -197,7 +240,7 @@ async def get_personalized_offers(db: AsyncSession, user: User):
 
         # Розрахувати знижку на основі кількості бронювань у кластері
         total_days = sum((b.end_date - b.start_date).days for b in cluster_bookings)
-        discount = min(20.0, 5.0 + 0.1 * total_days) 
+        discount = min(20.0, 5.0 + 0.1 * total_days)
 
         message = "Спеціальна пропозиція саме для вас!"
         offers.append(
@@ -213,8 +256,23 @@ async def get_owner_bookings(db: AsyncSession, owner_id: int):
         select(Booking)
         .join(Booking.property)
         .where(Property.owner_id == owner_id)
-        .options(selectinload(Booking.property))
+        .options(
+            selectinload(Booking.property).selectinload(Property.owner),
+            selectinload(Booking.payment),
+        )
     )
     result = await db.execute(query)
     bookings = result.scalars().all()
     return bookings
+
+
+async def get_all_bookings(db: AsyncSession) -> List[Booking]:
+    """Get all bookings in the system (admin only)."""
+    result = await db.execute(
+        select(Booking).options(
+            selectinload(Booking.property).selectinload(Property.owner),
+            selectinload(Booking.user),
+            selectinload(Booking.payment),
+        )
+    )
+    return result.scalars().all()

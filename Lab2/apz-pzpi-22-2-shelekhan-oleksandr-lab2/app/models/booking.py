@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Enum
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Enum, Float, String, Text
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 from app.enums.booking_status import BookingStatus
@@ -15,6 +15,8 @@ class Booking(Base):
     end_date = Column(Date, nullable=False)
     status = Column(Enum(BookingStatus), default=BookingStatus.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
+    booking_price = Column(Float, nullable=False)
 
     property = relationship("Property", back_populates="bookings", lazy="selectin")
     user = relationship("User", back_populates="bookings", lazy="selectin")
+    payment = relationship("Payment", back_populates="booking", uselist=False)

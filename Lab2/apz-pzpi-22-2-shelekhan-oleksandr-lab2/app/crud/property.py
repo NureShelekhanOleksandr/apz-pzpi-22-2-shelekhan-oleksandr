@@ -1,7 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.property import Property
 from app.models.user import User, Role
-from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyWithAvailabilityPeriods, AvailabilityPeriod
+from app.schemas.property import (
+    PropertyCreate,
+    PropertyUpdate,
+    PropertyWithAvailabilityPeriods,
+    AvailabilityPeriod,
+)
 from app.schemas.user import User
 from sqlalchemy import select, delete
 from fastapi import HTTPException
@@ -11,9 +16,7 @@ from datetime import date
 from datetime import timedelta
 
 
-async def create_property(
-    db: AsyncSession, property_data: PropertyCreate, user: User
-):
+async def create_property(db: AsyncSession, property_data: PropertyCreate, user: User):
     """Create a new property."""
     new_property = Property(**property_data.model_dump(), owner_id=user.id)
     db.add(new_property)
@@ -79,7 +82,8 @@ async def get_property(db: AsyncSession, property_id: int):
 
 async def get_properties(db: AsyncSession):
     """Read all properties."""
-    result = await db.execute(select(Property))
+    query = select(Property)
+    result = await db.execute(query)
     properties = result.scalars().all()
 
     return properties
@@ -92,7 +96,9 @@ async def get_available_properties(db: AsyncSession):
     properties = result.scalars().all()
 
     today = date.today()
-    max_date = today + timedelta(days=365)  # Assume we are looking for availability up to a year ahead
+    max_date = today + timedelta(
+        days=365
+    )  # Assume we are looking for availability up to a year ahead
     available_properties = []
 
     for property in properties:
@@ -106,31 +112,91 @@ async def get_available_properties(db: AsyncSession):
         for booking in bookings:
             if current_start < booking.start_date:
                 # Add available period
-                availability_periods.append({
-                    "start_date": current_start,
-                    "end_date": booking.start_date - timedelta(days=1)
-                })
+                availability_periods.append(
+                    {
+                        "start_date": current_start,
+                        "end_date": booking.start_date - timedelta(days=1),
+                    }
+                )
             # Update current start
             current_start = max(current_start, booking.end_date + timedelta(days=1))
 
         # If there is a period left after the last booking
         if current_start <= max_date:
-            availability_periods.append({
-                "start_date": current_start,
-                "end_date": max_date
-            })
+            availability_periods.append(
+                {"start_date": current_start, "end_date": max_date}
+            )
 
         # Add property with available periods if there is at least one
         if availability_periods:
-            available_properties.append(PropertyWithAvailabilityPeriods(
-                id=property.id,
-                owner_id=property.owner_id,
-                name=property.name,
-                description=property.description,
-                rooms=property.rooms,
-                price=property.price,
-                location=property.location,
-                availability_periods=availability_periods
-            ))
+            available_properties.append(
+                PropertyWithAvailabilityPeriods(
+                    id=property.id,
+                    owner_id=property.owner_id,
+                    name=property.name,
+                    description=property.description,
+                    rooms=property.rooms,
+                    price=property.price,
+                    location=property.location,
+                    availability_periods=availability_periods,
+                )
+            )
 
     return available_properties
+
+
+async def get_property_availability(db: AsyncSession, property_id: int):
+    """Get availability periods for a specific property."""
+    # Load the property with its bookings
+    result = await db.execute(
+        select(Property)
+        .filter(Property.id == property_id)
+        .options(selectinload(Property.bookings))
+    )
+    property = result.scalar_one_or_none()
+
+    if not property:
+        raise HTTPException(status_code=404, detail="Property not found.")
+
+    today = date.today()
+    max_date = today + timedelta(days=365)  # Look ahead one year
+
+    # Filter out cancelled bookings and sort by start date
+    confirmed_bookings = [
+        booking
+        for booking in property.bookings
+        if booking.status != BookingStatus.CANCELLED and booking.end_date >= today
+    ]
+    bookings = sorted(confirmed_bookings, key=lambda b: b.start_date)
+
+    # Find free periods
+    availability_periods = []
+    current_start = today
+
+    for booking in bookings:
+        if current_start < booking.start_date:
+            # Add available period
+            availability_periods.append(
+                AvailabilityPeriod(
+                    start_date=current_start,
+                    end_date=booking.start_date - timedelta(days=1),
+                )
+            )
+        # Update current start
+        current_start = max(current_start, booking.end_date + timedelta(days=1))
+
+    # If there is a period left after the last booking
+    if current_start <= max_date:
+        availability_periods.append(
+            AvailabilityPeriod(start_date=current_start, end_date=max_date)
+        )
+
+    return availability_periods
+
+
+async def get_properties_by_owner(db: AsyncSession, owner_id: int):
+    """Get all properties owned by the current user."""
+    query = select(Property).filter(Property.owner_id == owner_id)
+    result = await db.execute(query)
+    properties = result.scalars().all()
+    return properties
